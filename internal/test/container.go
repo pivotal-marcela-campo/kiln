@@ -144,6 +144,7 @@ func runTestWithSession(ctx context.Context, logger *log.Logger, w io.Writer, do
 			return err
 		}
 
+		logger.Printf("0")
 		logger.Println("creating test image")
 		imageBuildResult, err := dockerDaemon.ImageBuild(ctx, &dockerfileTarball, types.ImageBuildOptions{
 			Tags:      []string{"kiln_test_dependencies:vmware"},
