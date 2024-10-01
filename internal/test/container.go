@@ -154,6 +154,7 @@ func runTestWithSession(ctx context.Context, logger *log.Logger, w io.Writer, do
 			return fmt.Errorf("failed to build image: %w", err)
 		}
 
+		logger.Printf("5")
 		if err := checkSSHPrivateKeyError(imageBuildResult.Body); err != nil {
 			return err
 		}
@@ -166,6 +167,7 @@ func runTestWithSession(ctx context.Context, logger *log.Logger, w io.Writer, do
 			return fmt.Errorf("failed to parse environment: %s", err)
 		}
 
+		logger.Printf("6")
 		dockerCmd := strings.Join(commands, " && ")
 
 		envVars := getTileTestEnvVars(configuration.AbsoluteTileDirectory, tileDir, envMap)
@@ -196,7 +198,7 @@ func runTestWithSession(ctx context.Context, logger *log.Logger, w io.Writer, do
 		logger.Printf("created test container with id %s", testContainer.ID)
 
 		errG := errgroup.Group{}
-
+		logger.Printf("1")
 		sigInt := make(chan os.Signal, 1)
 		signal.Notify(sigInt, os.Interrupt)
 		errG.Go(func() error {
@@ -210,6 +212,7 @@ func runTestWithSession(ctx context.Context, logger *log.Logger, w io.Writer, do
 			return nil
 		})
 
+		logger.Printf("2")
 		if err := dockerDaemon.ContainerStart(ctx, testContainer.ID, types.ContainerStartOptions{}); err != nil {
 			return fmt.Errorf("failed to start test container: %w", err)
 		}
@@ -221,6 +224,8 @@ func runTestWithSession(ctx context.Context, logger *log.Logger, w io.Writer, do
 		if _, err := io.Copy(w, out); err != nil {
 			return err
 		}
+
+		logger.Printf("3")
 
 		// Although the fan-in loop pattern seems like the right solution here, ContainerWait
 		// does not properly close channels, so it won't work.
@@ -238,6 +243,8 @@ func runTestWithSession(ctx context.Context, logger *log.Logger, w io.Writer, do
 				}
 			}
 		}
+
+		logger.Printf("4")
 		signal.Stop(sigInt)
 		close(sigInt)
 
