@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 FROM golang as go-image
 FROM pivotalcfreleng/kiln:v0.77.0 as kiln
 
