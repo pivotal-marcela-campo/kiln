@@ -1,3 +1,4 @@
+# # syntax=docker/dockerfile-upstream:1.9-labs
 FROM golang as go-image
 FROM pivotalcfreleng/kiln:v0.77.0 as kiln
 
