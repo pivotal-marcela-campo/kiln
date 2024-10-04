@@ -3,7 +3,11 @@ package cargo
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	. "github.com/onsi/gomega"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -294,5 +298,319 @@ func TestValidate_checkComponentVersionsAndConstraint(t *testing.T) {
 			HaveOccurred(),
 			MatchError(ContainSubstring("invalid lock version")),
 		))
+	})
+}
+
+func TestValidateWithOptions(t *testing.T) {
+	t.Run("resource type allow list", func(t *testing.T) {
+		t.Run("when the types are permitted", func(t *testing.T) {
+			kf := Kilnfile{
+				ReleaseSources: []ReleaseSourceConfig{
+					{Type: "farm"},
+					{Type: "orchard"},
+				},
+			}
+			kl := KilnfileLock{}
+			errs := Validate(kf, kl, ValidateResourceTypeAllowList("orchard", "farm"))
+			assert.Zero(t, errs)
+		})
+		t.Run("when one of the types is not in the allow list", func(t *testing.T) {
+			kf := Kilnfile{
+				ReleaseSources: []ReleaseSourceConfig{
+					{Type: "farm"},
+					{Type: "orchard"},
+				},
+			}
+			kl := KilnfileLock{}
+			errs := Validate(kf, kl, ValidateResourceTypeAllowList("orchard"))
+			if assert.Len(t, errs, 1) {
+				assert.ErrorContains(t, errs[0], "release source type not allowed: farm")
+			}
+		})
+	})
+
+	t.Run("when a release_source is not configured properly", func(t *testing.T) {
+		for _, tt := range []struct {
+			Name    string
+			Sources []ReleaseSourceConfig
+			Error   func(t *testing.T, errs []error)
+		}{
+			{
+				Name: "artifactory host is empty",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type: BOSHReleaseTarballSourceTypeArtifactory,
+						ID:   "",
+						// ArtifactoryHost: "http://example.com",
+						Username:     "bot",
+						Password:     "beep boop",
+						Repo:         "secret-stash",
+						PathTemplate: "some-path",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "missing required field artifactory_host")
+				},
+			},
+			{
+				Name: "artifactory password is empty",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						// Password: "beep boop",
+						Repo:         "secret-stash",
+						PathTemplate: "some-path",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "missing required field password")
+				},
+			},
+			{
+				Name: "artifactory username is empty",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						// Username:        "bot",
+						Password:     "beep boop",
+						Repo:         "secret-stash",
+						PathTemplate: "some-path",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "missing required field username")
+				},
+			},
+			{
+				Name: "artifactory repo is empty",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						Password:        "beep boop",
+						// Repo:     "secret-stash",
+						PathTemplate: "some-path",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "missing required field repo")
+				},
+			},
+			{
+				Name: "artifactory path_template is empty",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						Password:        "beep boop",
+						Repo:            "secret-stash",
+						// PathTemplate:    "some-path",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "missing required field path_template")
+				},
+			},
+			{
+				Name: "artifactory path_template is malformed",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						Password:        "beep boop",
+						Repo:            "secret-stash",
+						PathTemplate:    "{{ loosing power",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "failed to parse path_template:")
+				},
+			},
+			{
+				Name: "artifactory has unexpected field bucket",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						Password:        "beep boop",
+						Repo:            "secret-stash",
+						PathTemplate:    "ok",
+
+						Bucket: "UNEXPECTED",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "unexpected field bucket")
+				},
+			},
+			{
+				Name: "artifactory has unexpected field region",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						Password:        "beep boop",
+						Repo:            "secret-stash",
+						PathTemplate:    "ok",
+
+						Region: "UNEXPECTED",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "unexpected field region")
+				},
+			},
+			{
+				Name: "artifactory has unexpected field access_key_id",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						Password:        "beep boop",
+						Repo:            "secret-stash",
+						PathTemplate:    "ok",
+
+						AccessKeyId: "UNEXPECTED",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "unexpected field access_key_id")
+				},
+			},
+			{
+				Name: "artifactory has unexpected field secret_access_key",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						Password:        "beep boop",
+						Repo:            "secret-stash",
+						PathTemplate:    "ok",
+
+						SecretAccessKey: "UNEXPECTED",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "unexpected field secret_access_key")
+				},
+			},
+			{
+				Name: "artifactory has unexpected field role_arn",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						Password:        "beep boop",
+						Repo:            "secret-stash",
+						PathTemplate:    "ok",
+
+						RoleARN: "UNEXPECTED",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "unexpected field role_arn")
+				},
+			},
+			{
+				Name: "artifactory has unexpected field endpoint",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						Password:        "beep boop",
+						Repo:            "secret-stash",
+						PathTemplate:    "ok",
+
+						Endpoint: "UNEXPECTED",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "unexpected field endpoint")
+				},
+			},
+			{
+				Name: "artifactory has unexpected field org",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						Password:        "beep boop",
+						Repo:            "secret-stash",
+						PathTemplate:    "ok",
+
+						Org: "UNEXPECTED",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "unexpected field org")
+				},
+			},
+			{
+				Name: "artifactory has unexpected field github_token",
+				Sources: []ReleaseSourceConfig{
+					{
+						Type:            BOSHReleaseTarballSourceTypeArtifactory,
+						ID:              "",
+						ArtifactoryHost: "http://example.com",
+						Username:        "bot",
+						Password:        "beep boop",
+						Repo:            "secret-stash",
+						PathTemplate:    "ok",
+
+						GithubToken: "UNEXPECTED",
+					},
+				},
+				Error: func(t *testing.T, errs []error) {
+					require.Len(t, errs, 1)
+					assert.ErrorContains(t, errs[0], "unexpected field github_token")
+				},
+			},
+		} {
+			t.Run(tt.Name, func(t *testing.T) {
+				k := Kilnfile{
+					ReleaseSources: tt.Sources,
+				}
+				errs := Validate(k, KilnfileLock{})
+				tt.Error(t, errs)
+			})
+		}
 	})
 }

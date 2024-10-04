@@ -14,6 +14,7 @@ import (
 type Validate struct {
 	Options struct {
 		flags.Standard
+		ReleaseSourceTypeAllowList []string `long:"allow-release-source-type"`
 	}
 
 	FS billy.Filesystem
@@ -38,7 +39,7 @@ func (v Validate) Execute(args []string) error {
 		return fmt.Errorf("failed to load kilnfiles: %w", err)
 	}
 
-	errs := cargo.Validate(kf, lock)
+	errs := cargo.Validate(kf, lock, cargo.ValidateResourceTypeAllowList(v.Options.ReleaseSourceTypeAllowList...))
 	if len(errs) > 0 {
 		return errorList(errs)
 	}
