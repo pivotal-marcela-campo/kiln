@@ -11,7 +11,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/go-github/v40/github"
+	"github.com/google/go-github/v50/github"
+	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
 	"github.com/pivotal-cf/kiln/internal/component"
@@ -22,11 +23,16 @@ import (
 func TestListAllOfTheCrap(t *testing.T) {
 	t.SkipNow()
 
-	grs := component.NewGithubReleaseSource(cargo.ReleaseSourceConfig{
-		Type:        component.ReleaseSourceTypeGithub,
-		GithubToken: os.Getenv("GITHUB_TOKEN"),
-		Org:         "cloudfoundry",
-	})
+	logger := log.New(GinkgoWriter, "[test] ", log.Default().Flags())
+
+	grs := component.NewGithubReleaseSource(
+		cargo.ReleaseSourceConfig{
+			Type:        component.ReleaseSourceTypeGithub,
+			GithubToken: os.Getenv("GITHUB_ACCESS_TOKEN"),
+			Org:         "cloudfoundry",
+		},
+		logger,
+	)
 	// grs.ListAllOfTheCrap(context.TODO(), "cloudfoundry")
 
 	// grs.Client.Repositories.GetReleaseByTag()
@@ -88,9 +94,8 @@ func TestGithubReleaseSource_ComponentLockFromGithubRelease(t *testing.T) {
 		file := &SetTrueOnClose{Reader: bytes.NewBufferString("hello")}
 		downloader.DownloadReleaseAssetReturns(file, "", nil)
 
-		output := bytes.NewBuffer(nil)
 		grsMock := &component.GithubReleaseSource{
-			Logger:                 log.New(output, "[Github release source] ", log.Default().Flags()),
+			Logger:                 log.New(GinkgoWriter, "[Github release source] ", log.Default().Flags()),
 			ReleaseAssetDownloader: downloader,
 			ReleaseByTagGetter:     releaseGetter,
 			ReleaseSourceConfig: cargo.ReleaseSourceConfig{
@@ -177,9 +182,8 @@ func TestGithubReleaseSource_ComponentLockFromGithubRelease(t *testing.T) {
 		file := &SetTrueOnClose{Reader: bytes.NewBufferString("hello")}
 		downloader.DownloadReleaseAssetReturns(file, "", nil)
 
-		output := bytes.NewBuffer(nil)
 		grsMock := &component.GithubReleaseSource{
-			Logger:                 log.New(output, "[Github release source] ", log.Default().Flags()),
+			Logger:                 log.New(GinkgoWriter, "[Github release source] ", log.Default().Flags()),
 			ReleaseAssetDownloader: downloader,
 			ReleaseByTagGetter:     releaseGetter,
 			ReleaseSourceConfig: cargo.ReleaseSourceConfig{
@@ -229,7 +233,10 @@ func TestGithubReleaseSource_FindReleaseVersion(t *testing.T) {
 		s := cargo.BOSHReleaseTarballSpecification{
 			Version: "garbage",
 		}
-		grs := component.NewGithubReleaseSource(cargo.ReleaseSourceConfig{Type: component.ReleaseSourceTypeGithub, GithubToken: "fake_token", Org: "cloudfoundry"})
+
+		logger := log.New(GinkgoWriter, "[test] ", log.Default().Flags())
+
+		grs := component.NewGithubReleaseSource(cargo.ReleaseSourceConfig{Type: component.ReleaseSourceTypeGithub, GithubToken: "fake_token", Org: "cloudfoundry"}, logger)
 		_, err := grs.FindReleaseVersion(s, false)
 
 		t.Run("it returns an error about version not being specific", func(t *testing.T) {
@@ -273,10 +280,8 @@ func TestGithubReleaseSource_FindReleaseVersion(t *testing.T) {
 			GitHubRepository: "https://github.com/cloudfoundry/bpm-release",
 		}
 
-		output := bytes.NewBuffer(nil)
-		defer t.Log(output.String())
 		grsMock := &component.GithubReleaseSource{
-			Logger:                 log.New(output, "[test] ", log.Default().Flags()),
+			Logger:                 log.New(GinkgoWriter, "[test] ", log.Default().Flags()),
 			ReleaseAssetDownloader: downloader,
 			ReleasesLister:         lister,
 			ReleaseSourceConfig: cargo.ReleaseSourceConfig{
@@ -299,7 +304,10 @@ func TestGithubReleaseSource_GetMatchedRelease(t *testing.T) {
 		s := cargo.BOSHReleaseTarballSpecification{
 			Version: ">1.0.0",
 		}
-		grs := component.NewGithubReleaseSource(cargo.ReleaseSourceConfig{Type: component.ReleaseSourceTypeGithub, GithubToken: "fake_token", Org: "cloudfoundry"})
+
+		logger := log.New(GinkgoWriter, "[test] ", log.Default().Flags())
+
+		grs := component.NewGithubReleaseSource(cargo.ReleaseSourceConfig{Type: component.ReleaseSourceTypeGithub, GithubToken: "fake_token", Org: "cloudfoundry"}, logger)
 		_, err := grs.GetMatchedRelease(s)
 
 		t.Run("it returns an error about version not being specific", func(t *testing.T) {
@@ -310,8 +318,54 @@ func TestGithubReleaseSource_GetMatchedRelease(t *testing.T) {
 	})
 }
 
-func TestGetGithubReleaseWithTag(t *testing.T) {
-	t.Run("when get release with tag api request fails", func(t *testing.T) {
+func TestGithubReleaseSource_GetGithubReleaseWithTag(t *testing.T) {
+	t.Run("when RepositoryOwnerAndNameFromPath fails", func(t *testing.T) {
+		damnIt := NewWithT(t)
+
+		ctx := context.TODO()
+
+		grsMock := &component.GithubReleaseSource{
+			Logger: log.New(GinkgoWriter, "[test] ", log.Default().Flags()),
+			ReleaseSourceConfig: cargo.ReleaseSourceConfig{
+				Type:        component.ReleaseSourceTypeGithub,
+				Org:         "cloudfoundry",
+				GithubToken: "fake-token",
+			},
+		}
+		s := cargo.BOSHReleaseTarballSpecification{
+			Name:             "routing",
+			Version:          "0.226.0",
+			GitHubRepository: "invalid-uri",
+		}
+
+		_, err := grsMock.GetGithubReleaseWithTag(ctx, s)
+		damnIt.Expect(err).To(MatchError(component.ErrNotFound))
+	})
+
+	t.Run("when the GitHubRepository owner does not match the configured Org", func(t *testing.T) {
+		damnIt := NewWithT(t)
+
+		ctx := context.TODO()
+
+		grsMock := &component.GithubReleaseSource{
+			Logger: log.New(GinkgoWriter, "[test] ", log.Default().Flags()),
+			ReleaseSourceConfig: cargo.ReleaseSourceConfig{
+				Type:        component.ReleaseSourceTypeGithub,
+				Org:         "cloudnotfoundry",
+				GithubToken: "fake-token",
+			},
+		}
+		s := cargo.BOSHReleaseTarballSpecification{
+			Name:             "routing",
+			Version:          "0.226.0",
+			GitHubRepository: "https://github.com/cloudfoundry/routing-release",
+		}
+
+		_, err := grsMock.GetGithubReleaseWithTag(ctx, s)
+		damnIt.Expect(err).To(MatchError(component.ErrNotFound))
+	})
+
+	t.Run("when GetReleaseByTag fails", func(t *testing.T) {
 		damnIt := NewWithT(t)
 
 		releaseGetter := new(fakes.ReleaseByTagGetter)
@@ -324,9 +378,8 @@ func TestGetGithubReleaseWithTag(t *testing.T) {
 
 		ctx := context.TODO()
 
-		output := bytes.NewBuffer(nil)
 		grsMock := &component.GithubReleaseSource{
-			Logger:             log.New(output, "[test] ", log.Default().Flags()),
+			Logger:             log.New(GinkgoWriter, "[test] ", log.Default().Flags()),
 			ReleaseByTagGetter: releaseGetter,
 			ReleaseSourceConfig: cargo.ReleaseSourceConfig{
 				Type:        component.ReleaseSourceTypeGithub,
@@ -365,9 +418,8 @@ func TestGetGithubReleaseWithTag(t *testing.T) {
 
 		ctx := context.TODO()
 
-		output := bytes.NewBuffer(nil)
 		grsMock := &component.GithubReleaseSource{
-			Logger:             log.New(output, "[test] ", log.Default().Flags()),
+			Logger:             log.New(GinkgoWriter, "[test] ", log.Default().Flags()),
 			ReleaseByTagGetter: releaseGetter,
 			ReleaseSourceConfig: cargo.ReleaseSourceConfig{
 				Type:        component.ReleaseSourceTypeGithub,
@@ -430,9 +482,8 @@ func TestGetLatestMatchingRelease(t *testing.T) {
 			nil,
 		)
 
-		output := bytes.NewBuffer(nil)
 		grsMock := &component.GithubReleaseSource{
-			Logger:         log.New(output, "[test] ", log.Default().Flags()),
+			Logger:         log.New(GinkgoWriter, "[test] ", log.Default().Flags()),
 			ReleasesLister: releaseGetter,
 			ReleaseSourceConfig: cargo.ReleaseSourceConfig{
 				Org: "test-org",
@@ -480,9 +531,8 @@ func TestGetLatestMatchingRelease(t *testing.T) {
 			nil,
 		)
 
-		output := bytes.NewBuffer(nil)
 		grsMock := &component.GithubReleaseSource{
-			Logger:         log.New(output, "[test] ", log.Default().Flags()),
+			Logger:         log.New(GinkgoWriter, "[test] ", log.Default().Flags()),
 			ReleasesLister: releaseGetter,
 			ReleaseSourceConfig: cargo.ReleaseSourceConfig{
 				Org: "test-org",
@@ -513,9 +563,8 @@ func TestGetLatestMatchingRelease(t *testing.T) {
 			}
 		)
 
-		output := bytes.NewBuffer(nil)
 		grsMock := &component.GithubReleaseSource{
-			Logger: log.New(output, "[test] ", log.Default().Flags()),
+			Logger: log.New(GinkgoWriter, "[test] ", log.Default().Flags()),
 			ReleaseSourceConfig: cargo.ReleaseSourceConfig{
 				Org: githubOrg,
 			},
@@ -533,11 +582,16 @@ func TestGetLatestMatchingRelease(t *testing.T) {
 func TestDownloadReleaseAsset(t *testing.T) {
 	t.SkipNow()
 
-	grs := component.NewGithubReleaseSource(cargo.ReleaseSourceConfig{
-		Type:        component.ReleaseSourceTypeGithub,
-		GithubToken: os.Getenv("GITHUB_TOKEN"),
-		Org:         "cloudfoundry",
-	})
+	logger := log.New(GinkgoWriter, "[test] ", log.Default().Flags())
+
+	grs := component.NewGithubReleaseSource(
+		cargo.ReleaseSourceConfig{
+			Type:        component.ReleaseSourceTypeGithub,
+			GithubToken: os.Getenv("GITHUB_ACCESS_TOKEN"),
+			Org:         "cloudfoundry",
+		},
+		logger,
+	)
 	testLock, err := grs.GetMatchedRelease(cargo.BOSHReleaseTarballSpecification{Name: "routing", Version: "0.226.0", GitHubRepository: "https://github.com/cloudfoundry/routing-release"})
 	if err != nil {
 		t.Fatal(err)

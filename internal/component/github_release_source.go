@@ -15,8 +15,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/google/go-github/v40/github"
-	"golang.org/x/oauth2"
+	"github.com/google/go-github/v50/github"
 
 	"github.com/pivotal-cf/kiln/internal/gh"
 	"github.com/pivotal-cf/kiln/pkg/cargo"
@@ -34,26 +33,40 @@ type GithubReleaseSource struct {
 
 // NewGithubReleaseSource will provision a new GithubReleaseSource Project
 // from the Kilnfile (ReleaseSourceConfig). If type is incorrect it will PANIC
-func NewGithubReleaseSource(c cargo.ReleaseSourceConfig) *GithubReleaseSource {
+func NewGithubReleaseSource(c cargo.ReleaseSourceConfig, logger *log.Logger) *GithubReleaseSource {
 	if c.Type != "" && c.Type != ReleaseSourceTypeGithub {
 		panic(panicMessageWrongReleaseSourceType)
 	}
-	if c.GithubToken == "" {
+
+	if c.GithubToken == "" { // TODO remove this
 		panic("no token passed for github release source")
 	}
+
 	if c.Org == "" {
 		panic("no github org passed for github release source")
 	}
 
-	ctx := context.TODO()
-	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: c.GithubToken})
-	tokenClient := oauth2.NewClient(ctx, tokenSource)
-	githubClient := github.NewClient(tokenClient)
+	// The GitClient should be initialized with the proper host according to
+	// the release repository URL instead. This function doesn't have access
+	// to each release, so this will do for now.
+	//
+	host := ""
+	if c.Org == "TNZ" {
+		host = "https://github.gwd.broadcom.net"
+	}
 
+	if logger == nil {
+		logger = log.New(os.Stderr, "[Github release source] ", log.Default().Flags())
+	}
+
+	githubClient, err := gh.GitClient(context.TODO(), host, c.GithubToken, c.GithubToken)
+	if err != nil {
+		panic(err)
+	}
 	return &GithubReleaseSource{
 		ReleaseSourceConfig: c,
 		Token:               c.GithubToken,
-		Logger:              log.New(os.Stderr, "[Github release source] ", log.Default().Flags()),
+		Logger:              logger,
 
 		ReleaseAssetDownloader: githubClient.Repositories,
 		ReleaseByTagGetter:     githubClient.Repositories,
@@ -93,6 +106,11 @@ type ReleaseByTagGetter interface {
 func (grs *GithubReleaseSource) GetGithubReleaseWithTag(ctx context.Context, s cargo.BOSHReleaseTarballSpecification) (*github.RepositoryRelease, error) {
 	repoOwner, repoName, err := gh.RepositoryOwnerAndNameFromPath(s.GitHubRepository)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+
+	if repoOwner != grs.Org {
+		grs.Logger.Printf("GitHubRepository owner %q does not match configured Org %q, skipping...", repoOwner, grs.Org)
 		return nil, ErrNotFound
 	}
 
